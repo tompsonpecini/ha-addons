@@ -1,0 +1,15 @@
+# Estado e dados gerados em execução — nunca versionar
+estado.json
+achados/
+*.log
+*.pdf
+
+# Sistema operacional
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editores
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,42 @@
+name: Sentinela DIO-ES
+version: "2.1.0"
+slug: sentinela_dioes
+description: Monitora o Diario Oficial do Estado do Espirito Santo e alerta quando um termo configurado e publicado
+url: https://github.com/SEU-USUARIO/ha-addons/tree/main/sentinela_dioes
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: services
+boot: auto
+homeassistant_api: true
+map:
+  - share:rw
+options:
+  termos:
+    - '\bSOBRENOME\b'
+  dias_retroativos: 7
+  tipo_edicao_id: 1
+  usar_download_completo: true
+  incluir_trecho: false
+  incluir_link: false
+  notify_service: ""
+  notify_entity: "notify.meu_celular"
+  horarios:
+    - "07:00"
+    - "13:00"
+    - "19:00"
+  pausa_segundos: 0.4
+schema:
+  termos:
+    - str
+  dias_retroativos: int(1,60)
+  tipo_edicao_id: int
+  usar_download_completo: bool
+  incluir_trecho: bool
+  incluir_link: bool
+  notify_service: str?
+  notify_entity: str
+  horarios:
+    - str
+  pausa_segundos: float(0.1,5.0)

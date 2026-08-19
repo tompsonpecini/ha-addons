@@ -1,0 +1,15 @@
+# Quebra de linha LF em todo o repositorio.
+# Critico: run.sh com CRLF impede o add-on de iniciar, com erro obscuro
+# de "arquivo nao encontrado" no shebang.
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.py    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+Dockerfile text eol=lf
+
+*.pdf   binary
+*.png   binary
+*.jpg   binary
