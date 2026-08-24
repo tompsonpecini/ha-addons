@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0
+
+- **Corrigido: a notificação não abria nada.** O caminho que funcionava era o
+  de reserva (`notify.send_message`), que ignora `data` — sem `url`, tocar no
+  alerta só abre o dashboard padrão do app. O add-on agora avisa no log quando
+  cai para a reserva e, quando o `notify_service` não existe, lista os serviços
+  `notify` disponíveis em vez de deixar só o HTTP 400 seco.
+- **Novo: página de relatório.** Cada varredura com achados grava
+  `<config>/www/sentinela_dioes/ultimo.html` e a notificação aponta para ela.
+  Traz as ocorrências agrupadas por edição, com trecho, termo destacado e link
+  para o portal. Exige `homeassistant_config:rw`, acrescentado ao mapeamento.
+- Uma ocorrência por página e por termo. O mesmo termo repetido cinco vezes na
+  mesma página virava cinco linhas iguais na notificação; agora vira uma, com a
+  contagem de repetições no relatório.
+- `incluir_link` passa a valer `true` por padrão e agora anexa o relatório.
+
 ## 2.1.0
 
 - Notificação enxuta: mostra o termo encontrado e onde saiu, agrupado por termo,

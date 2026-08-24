@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Sentinela DIO-ES - add-on local do Home Assistant OS.  (v2.0)
+Sentinela DIO-ES - add-on local do Home Assistant OS.  (v2.2)
 
 Consulta a API do portal IOES por DATA, em vez de adivinhar numero de edicao.
 
@@ -20,14 +20,16 @@ Os IDs sao globais no sistema IOES, que hospeda tambem diarios municipais - por
 isso filtramos por 'tipo_edicao_id'. Edicoes extras e suplementos da mesma data
 vem na mesma resposta e sao varridos tambem.
 
-  /data/options.json   opcoes do add-on
-  /data/estado.json    edicoes ja processadas (persistente)
-  /share/sentinela_dioes/achados/   PDF das paginas com ocorrencia
+  /data/options.json                opcoes do add-on
+  /data/estado.json                 edicoes ja processadas (persistente)
+  /share/sentinela_dioes/achados/   PDF de prova das edicoes com ocorrencia
+  <config>/www/sentinela_dioes/     relatorio HTML, servido em /local/
 """
 
 from __future__ import annotations
 
 import hashlib
+import html
 import io
 import json
 import os
@@ -45,6 +47,15 @@ OPCOES = "/data/options.json"
 ESTADO = "/data/estado.json"
 ACHADOS = "/share/sentinela_dioes/achados"
 
+# A pasta www do Home Assistant e servida em /local/, e e o unico jeito de a
+# notificacao abrir uma pagina propria dentro do app companion. O ponto de
+# montagem mudou de /config para /homeassistant nas versoes novas do
+# Supervisor, entao aceitamos os dois.
+RAIZES_HA = ("/homeassistant", "/config")
+REL_PASTA = "sentinela_dioes"
+REL_ARQUIVO = "ultimo.html"
+REL_MANTER = 30
+
 SUPERVISOR = "http://supervisor/core/api"
 TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 
@@ -55,7 +66,7 @@ URL_PAGINA = BASE + "/apifront/portal/edicoes/pdf_diario/{id}/{pagina}"
 URL_LEITURA = BASE + "/portal/visualizacoes/pdf/{id}/#/p:{pagina}/e:{id}"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) sentinela-dioes/2.0",
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) sentinela-dioes/2.2",
     "Referer": BASE + "/portal/visualizacoes/diario_oficial",
 }
 
@@ -85,14 +96,42 @@ def normaliza(texto: str) -> str:
     A hifenizacao importa: o Diario e diagramado em colunas estreitas e parte
     palavras (e nomes) no fim da linha.
     """
-    texto = texto.replace("\u00ad", "")
+    texto = texto.replace("­", "")
     texto = re.sub(r"-\s*\n\s*", "", texto)
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", texto).upper()
 
 
+def rotulo_do_termo(termo: str) -> str:
+    r"""Versao legivel do regex, para a notificacao: \bPECINI\b -> PECINI."""
+    r = termo.replace("\\b", "").replace("\\s+", " ").replace("\\s*", " ")
+    r = re.sub(r"[\\^$()\[\]?*+|]", "", r)
+    return r.strip() or termo
+
+
 # -------------------------------------------------------------- notificacao
+
+def cabecalho() -> dict:
+    return {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+
+
+def servicos_notify() -> list[str]:
+    """Nomes dos servicos do dominio notify, para diagnosticar nome errado.
+
+    O core responde HTTP 400 seco tanto para servico inexistente quanto para
+    payload invalido; sem esta lista o log nao distingue os dois casos.
+    """
+    try:
+        r = requests.get(f"{SUPERVISOR}/services", headers=cabecalho(), timeout=20)
+        r.raise_for_status()
+        for dominio in r.json():
+            if dominio.get("domain") == "notify":
+                return sorted(dominio.get("services") or {})
+    except (requests.RequestException, ValueError) as exc:
+        log("AVISO", f"nao consegui listar os servicos: {exc}")
+    return []
+
 
 def notifica(titulo: str, mensagem: str, url: str | None = None,
              critico: bool = False) -> None:
@@ -101,9 +140,10 @@ def notifica(titulo: str, mensagem: str, url: str | None = None,
         log("ERRO", "sem SUPERVISOR_TOKEN; alerta so no log")
         return
 
-    cab = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     extra: dict = {}
     if url:
+        # data.url e o que faz o toque na notificacao abrir o relatorio em vez
+        # do dashboard padrao do app.
         extra["url"] = url
     if critico:
         extra["push"] = {"interruption-level": "time-sensitive", "sound": "default"}
@@ -111,24 +151,169 @@ def notifica(titulo: str, mensagem: str, url: str | None = None,
     tentativas = []
     servico = cfg.get("notify_service", "")
     if servico:
-        tentativas.append((f"{SUPERVISOR}/services/notify/{servico}",
+        tentativas.append(("servico", f"{SUPERVISOR}/services/notify/{servico}",
                            {"title": titulo, "message": mensagem[:3500],
                             **({"data": extra} if extra else {})}))
     entidade = cfg.get("notify_entity", "")
     if entidade:
-        tentativas.append((f"{SUPERVISOR}/services/notify/send_message",
+        # notify.send_message nao aceita 'data': vai sem link e sem prioridade.
+        # So serve de rede de seguranca quando o servico legado falha.
+        tentativas.append(("entidade", f"{SUPERVISOR}/services/notify/send_message",
                            {"entity_id": entidade, "title": titulo,
                             "message": mensagem[:3500]}))
 
-    for endpoint, payload in tentativas:
+    caiu_para_entidade = False
+    for tipo, endpoint, payload in tentativas:
         try:
-            r = requests.post(endpoint, headers=cab, json=payload, timeout=20)
+            r = requests.post(endpoint, headers=cabecalho(), json=payload, timeout=20)
             if r.status_code < 300:
+                if caiu_para_entidade and url:
+                    log("AVISO", "alerta entregue pela entidade; o link nao foi "
+                                 "junto porque notify.send_message ignora 'data'")
                 return
             log("AVISO", f"{endpoint} respondeu HTTP {r.status_code}: {r.text[:200]}")
+            if tipo == "servico":
+                caiu_para_entidade = True
+                disponiveis = servicos_notify()
+                if disponiveis and servico not in disponiveis:
+                    log("ERRO", f"notify_service {servico!r} nao existe. "
+                                f"Servicos notify disponiveis: {', '.join(disponiveis)}")
         except requests.RequestException as exc:
             log("AVISO", f"falha em {endpoint}: {exc}")
     log("ERRO", "nenhum canal de notificacao funcionou")
+
+
+# ---------------------------------------------------------------- relatorio
+
+def raiz_config() -> str | None:
+    for base in RAIZES_HA:
+        if os.path.isdir(base):
+            return base
+    return None
+
+
+def limpa_relatorios(pasta: str) -> None:
+    antigos = sorted(f for f in os.listdir(pasta)
+                     if re.fullmatch(r"\d{8}_\d{4}\.html", f))
+    for f in antigos[:-REL_MANTER]:
+        try:
+            os.remove(os.path.join(pasta, f))
+        except OSError:
+            pass
+
+
+def destaca(trecho: str, termo: str) -> str:
+    """Trecho escapado, com o termo encontrado dentro de <mark>."""
+    try:
+        padrao = re.compile(termo)
+    except re.error:
+        return html.escape(trecho)
+    saida, fim = [], 0
+    for m in padrao.finditer(trecho):
+        saida.append(html.escape(trecho[fim:m.start()]))
+        saida.append(f"<mark>{html.escape(m.group(0))}</mark>")
+        fim = m.end()
+    saida.append(html.escape(trecho[fim:]))
+    return "".join(saida)
+
+
+ESTILO = (
+    ":root{color-scheme:light dark;--fg:#16181d;--bg:#f6f7f9;--card:#fff;"
+    "--linha:#dcdfe4;--suave:#5c6370;--marca:#0b6bcb}"
+    "@media(prefers-color-scheme:dark){:root{--fg:#e8eaed;--bg:#111317;"
+    "--card:#1b1e24;--linha:#2d323b;--suave:#9aa2af;--marca:#63a9ff}}"
+    "*{box-sizing:border-box}"
+    "body{margin:0;padding:16px;background:var(--bg);color:var(--fg);"
+    "font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}"
+    "h1{font-size:20px;margin:0 0 4px}"
+    "p.quando{margin:0 0 20px;color:var(--suave);font-size:14px}"
+    "section{background:var(--card);border:1px solid var(--linha);"
+    "border-radius:12px;padding:14px 16px;margin-bottom:14px}"
+    "h2{font-size:16px;margin:0 0 10px}"
+    "ul{list-style:none;margin:0;padding:0}"
+    "li{padding:10px 0;border-top:1px solid var(--linha)}"
+    "li:first-child{border-top:0}"
+    ".termo{font-weight:600;color:var(--marca)}"
+    ".onde{color:var(--suave);font-size:14px}"
+    "blockquote{margin:8px 0 0;padding:8px 12px;border-left:3px solid var(--linha);"
+    "color:var(--suave);font-size:14px;overflow-wrap:anywhere}"
+    "mark{background:#ffe27a;color:#16181d;border-radius:3px;padding:0 2px}"
+    "a{color:var(--marca)}"
+    "section.aviso{border-color:#c9772a}"
+    ".vazio{color:var(--suave);margin:0}"
+)
+
+
+def monta_html(achados: list[dict], suspeitas: list[str]) -> str:
+    e = html.escape
+    agora = datetime.now()
+
+    por_edicao: dict[int, list[dict]] = {}
+    for a in achados:
+        por_edicao.setdefault(a["edicao"], []).append(a)
+
+    partes = [
+        "<!doctype html>",
+        "<meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>",
+        "<title>Sentinela DIO-ES</title>",
+        f"<style>{ESTILO}</style>",
+        "<h1>Sentinela DIO-ES</h1>",
+        f"<p class='quando'>Varredura de {e(agora.strftime('%d/%m/%Y as %H:%M'))}"
+        f" &middot; {len(achados)} ocorrencia(s) em {len(por_edicao)} edicao(oes)</p>",
+    ]
+
+    if suspeitas:
+        partes.append("<section class='aviso'><h2>Leitura suspeita</h2><ul>")
+        partes += [f"<li>{e(s)}</li>" for s in suspeitas]
+        partes.append("</ul></section>")
+
+    if not achados:
+        partes.append("<section><p class='vazio'>Nenhuma ocorrencia nesta "
+                      "varredura.</p></section>")
+
+    for eid, itens in por_edicao.items():
+        primeiro = itens[0]
+        titulo = (f"Edicao {e(str(primeiro.get('numero')))} de "
+                  f"{e(str(primeiro.get('data')))}")
+        partes.append(f"<section><h2>{titulo} &middot; "
+                      f"<a href='{e(URL_COMPLETO.format(id=eid))}'>PDF</a></h2><ul>")
+        for a in sorted(itens, key=lambda x: (x["pagina"], x["termo"])):
+            vezes = a.get("repeticoes", 1)
+            selo = f" ({vezes}x)" if vezes > 1 else ""
+            partes.append(
+                f"<li><span class='termo'>{e(rotulo_do_termo(a['termo']))}</span>"
+                f"<span class='onde'>{selo} &middot; pagina {a['pagina']} &middot; "
+                f"<a href='{e(a['link'])}'>abrir no portal</a></span>"
+                f"<blockquote>{destaca(a['trecho'], a['termo'])}</blockquote></li>")
+        partes.append("</ul></section>")
+
+    return "\n".join(partes)
+
+
+def escreve_relatorio(achados: list[dict], suspeitas: list[str]) -> str | None:
+    """Grava a pagina e devolve a URL relativa para a notificacao."""
+    base = raiz_config()
+    if not base:
+        log("AVISO", "pasta do Home Assistant nao mapeada; sem pagina de relatorio "
+                     "(falta 'homeassistant_config:rw' no map do add-on)")
+        return None
+    pasta = os.path.join(base, "www", REL_PASTA)
+    try:
+        os.makedirs(pasta, exist_ok=True)
+        pagina = monta_html(achados, suspeitas)
+        with open(os.path.join(pasta, REL_ARQUIVO), "w", encoding="utf-8") as f:
+            f.write(pagina)
+        with open(os.path.join(pasta, f"{datetime.now():%Y%m%d_%H%M}.html"),
+                  "w", encoding="utf-8") as f:
+            f.write(pagina)
+        limpa_relatorios(pasta)
+    except OSError as exc:
+        log("AVISO", f"nao consegui gravar o relatorio: {exc}")
+        return None
+    log("INFO", f"relatorio gravado em {pasta}/{REL_ARQUIVO}")
+    # O sufixo de tempo evita que a webview do app mostre a varredura anterior.
+    return f"/local/{REL_PASTA}/{REL_ARQUIVO}?v={int(time.time())}"
 
 
 # ------------------------------------------------------------------- portal
@@ -242,35 +427,33 @@ def processa_edicao(sessao: requests.Session, item: dict) -> dict:
             vazias += 1
         texto = normaliza(bruto)
         for origem, padrao in padroes:
-            for m in padrao.finditer(texto):
-                ini, fim = max(0, m.start() - 300), min(len(texto), m.end() + 300)
-                os.makedirs(ACHADOS, exist_ok=True)
-                if pdf is not None:
-                    caminho = os.path.join(ACHADOS, f"ed{eid}_p{numero:03d}.pdf")
-                    with open(caminho, "wb") as f:
-                        f.write(pdf)
-                elif inteiro is not None and not salvou_inteiro:
-                    caminho = os.path.join(ACHADOS, f"ed{eid}_completo.pdf")
-                    with open(caminho, "wb") as f:
-                        f.write(inteiro)
-                    salvou_inteiro = True
-                    log("INFO", f"prova gravada em {caminho}")
-                achados.append({
-                    "edicao": eid, "numero": item.get("numero"), "data": item.get("data"),
-                    "pagina": numero, "termo": origem, "trecho": texto[ini:fim].strip(),
-                    "link": URL_LEITURA.format(id=eid, pagina=numero)})
+            # Um termo que aparece cinco vezes na mesma pagina e uma ocorrencia,
+            # nao cinco: repetir a mesma pagina so inchava a notificacao.
+            m = padrao.search(texto)
+            if not m:
+                continue
+            ini, fim = max(0, m.start() - 300), min(len(texto), m.end() + 300)
+            os.makedirs(ACHADOS, exist_ok=True)
+            if pdf is not None:
+                caminho = os.path.join(ACHADOS, f"ed{eid}_p{numero:03d}.pdf")
+                with open(caminho, "wb") as f:
+                    f.write(pdf)
+            elif inteiro is not None and not salvou_inteiro:
+                caminho = os.path.join(ACHADOS, f"ed{eid}_completo.pdf")
+                with open(caminho, "wb") as f:
+                    f.write(inteiro)
+                salvou_inteiro = True
+                log("INFO", f"prova gravada em {caminho}")
+            achados.append({
+                "edicao": eid, "numero": item.get("numero"), "data": item.get("data"),
+                "pagina": numero, "termo": origem, "trecho": texto[ini:fim].strip(),
+                "repeticoes": len(padrao.findall(texto)),
+                "link": URL_LEITURA.format(id=eid, pagina=numero)})
     return {"achados": achados, "paginas": len(paginas), "vazias": vazias}
 
 
-def rotulo_do_termo(termo: str) -> str:
-    """Versao legivel do regex, para a notificacao: \bPECINI\b -> PECINI."""
-    r = termo.replace("\\b", "").replace("\\s+", " ").replace("\\s*", " ")
-    r = re.sub(r"[\\^$()\[\]?*+|]", "", r)
-    return r.strip() or termo
-
-
-def monta_alerta(achados: list[dict]) -> tuple[str, str, str | None]:
-    """(titulo, mensagem, url) - curto por padrao: termo e onde saiu."""
+def monta_alerta(achados: list[dict]) -> tuple[str, str]:
+    """(titulo, mensagem) - curto por padrao: termo e onde saiu."""
     por_termo: dict[str, list[dict]] = {}
     for a in achados:
         por_termo.setdefault(rotulo_do_termo(a["termo"]), []).append(a)
@@ -278,10 +461,10 @@ def monta_alerta(achados: list[dict]) -> tuple[str, str, str | None]:
     linhas = []
     for rotulo, itens in por_termo.items():
         locais = "; ".join(f"ed. {i['numero']} de {i['data']}, pág. {i['pagina']}"
-                           for i in itens[:5])
-        if len(itens) > 5:
-            locais += f" (+{len(itens) - 5})"
-        linhas.append(f"{rotulo} — {locais}")
+                           for i in itens[:4])
+        if len(itens) > 4:
+            locais += f" (+{len(itens) - 4})"
+        linhas.append(f"{rotulo} ({len(itens)}) — {locais}")
 
     nomes = ", ".join(por_termo)
     titulo = f"DOE-ES: {nomes}" if len(nomes) <= 60 else \
@@ -292,8 +475,7 @@ def monta_alerta(achados: list[dict]) -> tuple[str, str, str | None]:
         mensagem += "\n\n" + "\n\n".join(
             f"pág. {a['pagina']}: ...{a['trecho'][:300]}..." for a in achados[:5])
 
-    url = achados[0]["link"] if cfg.get("incluir_link", False) else None
-    return titulo, mensagem, url
+    return titulo, mensagem
 
 
 def ciclo() -> None:
@@ -348,12 +530,18 @@ def ciclo() -> None:
             salva_estado(estado)
         time.sleep(0.3)
 
-    if achados:
-        titulo, mensagem, url = monta_alerta(achados)
-        notifica(titulo, mensagem, url=url, critico=True)
-
-    if suspeitas:
-        notifica("DOE-ES: leitura suspeita", "\n".join(suspeitas), critico=True)
+    if achados or suspeitas:
+        url = escreve_relatorio(achados, suspeitas)
+        if not cfg.get("incluir_link", True):
+            log("AVISO", "incluir_link desligado: a notificacao vai sem o link do "
+                         "relatorio e o toque so abre o dashboard padrao")
+            url = None
+        if achados:
+            titulo, mensagem = monta_alerta(achados)
+            notifica(titulo, mensagem, url=url, critico=True)
+        if suspeitas:
+            notifica("DOE-ES: leitura suspeita", "\n".join(suspeitas),
+                     url=url, critico=True)
 
     # Dead-man switch: o portal nao devolver nenhuma edicao na janela inteira
     # e quase sempre defeito (API mudou, DNS, rede), nao ausencia de publicacao.
@@ -401,6 +589,9 @@ def main() -> int:
     log("INFO", f"{len(cfg['termos'])} termo(s); janela de "
                 f"{cfg.get('dias_retroativos', 7)} dias; "
                 f"horarios: {', '.join(cfg.get('horarios', []))}")
+    if not cfg.get("notify_service"):
+        log("AVISO", "notify_service vazio: sem ele a notificacao nao leva link, "
+                     "porque notify.send_message ignora 'data'")
 
     primeira = True
     while True:

@@ -48,14 +48,23 @@ distância. Por isso a busca é por data e filtrada por `tipo_edicao_id`.
 | `tipo_edicao_id` | 1 | 1 = Diário Oficial do Espírito Santo |
 | `usar_download_completo` | true | Baixa a edição inteira; se falhar, cai para página a página |
 | `incluir_trecho` | false | Inclui o texto ao redor da ocorrência na notificação |
-| `incluir_link` | false | Torna a notificação clicável, abrindo o Diário |
+| `incluir_link` | true | Anexa o link do relatório à notificação |
 | `notify_service` | — | Serviço clássico, ex.: `mobile_app_meu_iphone` |
 | `notify_entity` | — | Entidade notify, ex.: `notify.meu_celular` |
 | `horarios` | 07/13/19 | Horários das varreduras |
 | `pausa_segundos` | 0.4 | Intervalo entre requisições ao portal |
 
-Se ambos os campos de notificação estiverem preenchidos, o serviço clássico é
-tentado primeiro (aceita link e som), com o moderno como reserva.
+Preencha **os dois** campos de notificação. O serviço clássico é tentado
+primeiro porque é o único que aceita `data` — sem ele a notificação não leva
+link nem prioridade, e tocar nela só abre o dashboard padrão do app.
+`notify.send_message` (a entidade) entra apenas como reserva.
+
+O nome do serviço clássico segue o **nome do dispositivo** no registro do Home
+Assistant, não o `entity_id`. Se o aparelho foi renomeado, os dois divergem:
+a entidade pode continuar `notify.iphone_17_pro` enquanto o serviço já é
+`mobile_app_iphone_tompson`. Nome errado responde HTTP 400 seco. Confira em
+**Ferramentas de desenvolvedor → Ações**, procurando por `notify.mobile_app_`.
+Se errar, o add-on lista no log os serviços que existem.
 
 ### Escrevendo os termos
 
@@ -84,6 +93,25 @@ Mudar a lista de termos faz o add-on reprocessar a janela retroativa inteira,
 de modo que um termo acrescentado hoje seja procurado também nas edições
 recentes.
 
+## A página do relatório
+
+A cada varredura com achados, o add-on grava
+`<config>/www/sentinela_dioes/ultimo.html` e manda esse endereço na
+notificação (`/local/sentinela_dioes/ultimo.html`). Tocar no alerta abre a
+página dentro do app, com todas as ocorrências agrupadas por edição: termo,
+página, trecho ao redor com o termo destacado, link para a página no portal e
+link para o PDF da edição. Cada varredura também deixa uma cópia datada; as 30
+mais recentes são mantidas.
+
+Isso exige `homeassistant_config:rw` no mapeamento do add-on — já está em
+`config.yaml`, mas uma instalação antiga precisa ser atualizada para receber a
+permissão.
+
+> A pasta `www` é servida em `/local/` **sem autenticação**: quem alcançar o
+> endereço do Home Assistant e souber o caminho lê o relatório. O conteúdo é
+> recorte de publicação oficial, já pública, mas revela quais nomes você
+> monitora. Se o Home Assistant estiver exposto à internet, considere isso.
+
 ## O que ele faz para não falhar calado
 
 - Repete requisição com erro de rede; HTML com HTTP 200 (recurso inexistente)
@@ -108,6 +136,7 @@ camada de texto.
 
 - Edições já processadas: `/data/estado.json`
 - PDF das edições com ocorrência: `share/sentinela_dioes/achados/`
+- Relatório HTML: `config/www/sentinela_dioes/` (`/local/sentinela_dioes/`)
 - Log: aba **Registro** do add-on
 
 ## Adaptação para outros estados
