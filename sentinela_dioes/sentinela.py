@@ -104,10 +104,21 @@ def normaliza(texto: str) -> str:
 
 
 def rotulo_do_termo(termo: str) -> str:
-    r"""Versao legivel do regex, para a notificacao: \bPECINI\b -> PECINI."""
-    r = termo.replace("\\b", "").replace("\\s+", " ").replace("\\s*", " ")
-    r = re.sub(r"[\\^$()\[\]?*+|]", "", r)
-    return r.strip() or termo
+    r"""Versao legivel do regex, para a notificacao: \bSILVA\b -> SILVA.
+
+    Sem isto o alerta mostra o padrao cru. Pior: a versao anterior apagava o
+    '|' sem deixar rastro, entao \bSILVA\b|\bSOUZA\b virava "SILVASOUZA" --
+    indistinguivel de um sobrenome composto. Agora a alternacao vira " / ", e
+    curinga, classe e atalho viram o espaco que de fato separa as partes do
+    nome.
+    """
+    r = re.sub(r"\\[bBAZ]", "", termo)              # ancoras nao se veem
+    r = r.replace("|", " / ")                       # alternacao: A / B
+    r = re.sub(r"\[[^\]]*\]|\\[sSwWdD]|\.", " ", r)
+    r = re.sub(r"\{\d*(?:,\d*)?\}|[?*+]", "", r)    # quantificadores somem
+    r = re.sub(r"[\\^$()]", "", r)
+    r = re.sub(r"\s+", " ", r)
+    return r.strip(" /") or termo
 
 
 # -------------------------------------------------------------- notificacao

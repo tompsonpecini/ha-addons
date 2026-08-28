@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.1
+
+- **Corrigido: o rótulo do termo na notificação.** A função que transforma o
+  regex em texto legível apagava o `|` sem deixar rastro, então
+  `\bSILVA\b|\bSOUZA\b` aparecia como "SILVASOUZA" — indistinguível de um
+  sobrenome composto, o que já levou a uma leitura errada de um log. Agora a
+  alternação vira " / ".
+- Curingas, classes e atalhos (`.{0,12}`, `[-\s]?`, `\s*`) viram o espaço que
+  de fato separa as partes do nome: `\bCRM\b.{0,12}\b1234\b` aparece como
+  "CRM 1234" e `\bMARIA\b.{0,25}SOUZA\b` como "MARIA SOUZA". Antes o alerta e
+  o relatório mostravam o padrão cru.
+
 ## 2.2.0
 
 - **Corrigido: a notificação não abria nada.** O caminho que funcionava era o
@@ -21,7 +33,7 @@
 - Notificação enxuta: mostra o termo encontrado e onde saiu, agrupado por termo,
   em vez de despejar o texto da matéria.
 - Novas opções `incluir_trecho` e `incluir_link`, ambas desligadas por padrão.
-- Regex vira rótulo legível na notificação (`\bPECINI\b` aparece como `PECINI`).
+- Regex vira rótulo legível na notificação (`\bSILVA\b` aparece como `SILVA`).
 
 ## 2.0.2
 

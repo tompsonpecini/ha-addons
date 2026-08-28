@@ -1,5 +1,5 @@
 name: Sentinela DIO-ES
-version: "2.2.0"
+version: "2.2.1"
 slug: sentinela_dioes
 description: Monitora o Diario Oficial do Estado do Espirito Santo e alerta quando um termo configurado e publicado
 url: https://github.com/tompsonpecini/ha-addons/tree/main/sentinela_dioes
