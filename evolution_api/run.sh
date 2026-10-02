@@ -6,6 +6,7 @@ export PATH="/usr/libexec/postgresql17:$PATH"
 OPTS=/data/options.json
 PGDATA=/data/postgres
 PWFILE=/data/db_password
+PGLOGDIR=/data/pglog
 
 API_KEY=$(jq -r '.api_key // ""' "$OPTS")
 if [ -z "$API_KEY" ] || [ ${#API_KEY} -lt 20 ]; then
@@ -14,8 +15,8 @@ if [ -z "$API_KEY" ] || [ ${#API_KEY} -lt 20 ]; then
 fi
 
 # --- PostgreSQL ---------------------------------------------------------
-mkdir -p /run/postgresql "$PGDATA"
-chown postgres:postgres /run/postgresql "$PGDATA"
+mkdir -p /run/postgresql "$PGDATA" "$PGLOGDIR"
+chown postgres:postgres /run/postgresql "$PGDATA" "$PGLOGDIR"
 chmod 700 "$PGDATA"
 
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
@@ -30,8 +31,12 @@ if [ ! -s "$PWFILE" ]; then
 fi
 DB_PW=$(cat "$PWFILE")
 
-su-exec postgres pg_ctl -D "$PGDATA" -w -l /data/postgres.log \
-    -o "-c listen_addresses=127.0.0.1" start
+su-exec postgres pg_ctl -D "$PGDATA" -w -l "$PGLOGDIR/postgres.log" \
+    -o "-c listen_addresses=127.0.0.1" start || {
+    echo "[evolution] PostgreSQL nao subiu:" >&2
+    tail -n 30 "$PGLOGDIR/postgres.log" >&2
+    exit 1
+}
 
 stop_pg() { su-exec postgres pg_ctl -D "$PGDATA" -m fast -w stop || true; }
 

@@ -1,5 +1,5 @@
 name: Evolution API
-version: "1.0.0"
+version: "1.0.1"
 slug: evolution_api
 description: API de WhatsApp (Evolution API v2) com PostgreSQL embutido, para integrar com n8n
 url: https://github.com/tompsonpecini/ha-addons/tree/main/evolution_api
