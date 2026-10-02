@@ -1,0 +1,26 @@
+name: Evolution API
+version: "1.0.0"
+slug: evolution_api
+description: API de WhatsApp (Evolution API v2) com PostgreSQL embutido, para integrar com n8n
+url: https://github.com/tompsonpecini/ha-addons/tree/main/evolution_api
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: services
+boot: auto
+ports:
+  8080/tcp: 8086
+ports_description:
+  8080/tcp: API e painel (/manager)
+webui: http://[HOST]:[PORT:8080]/manager
+options:
+  api_key: ""
+  server_url: "http://homeassistant.local:8086"
+  log_level: "ERROR,WARN,INFO"
+  salvar_historico: false
+schema:
+  api_key: password
+  server_url: url
+  log_level: str
+  salvar_historico: bool

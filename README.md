@@ -21,6 +21,11 @@ Consulta a API do portal por data, baixa cada edição nova, extrai o texto e
 compara com expressões regulares definidas pelo usuário. Guarda o PDF das
 edições com ocorrência como prova datada.
 
+### [Evolution API](./evolution_api)
+
+API de WhatsApp (Evolution API v2) com PostgreSQL embutido. Conecta um número
+por QR code e entrega as mensagens recebidas por webhook — feita para o n8n.
+
 ## Licença
 
 MIT
