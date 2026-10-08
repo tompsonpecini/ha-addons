@@ -26,6 +26,12 @@ edições com ocorrência como prova datada.
 API de WhatsApp (Evolution API v2) com PostgreSQL embutido. Conecta um número
 por QR code e entrega as mensagens recebidas por webhook — feita para o n8n.
 
+### [Transcrição (Whisper)](./transcricao_whisper)
+
+Transcreve áudios em português (OGG do WhatsApp, MP3, M4A, WAV) com o
+faster-whisper rodando na própria máquina, por uma API HTTP simples protegida
+por chave. Nada sai da rede local além do download do modelo.
+
 ## Licença
 
 MIT
