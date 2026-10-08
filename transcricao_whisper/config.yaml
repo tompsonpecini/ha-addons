@@ -1,7 +1,7 @@
 name: Transcrição (Whisper)
 version: "1.0.0"
 slug: transcricao_whisper
-description: Transcreve áudios (ex.: do WhatsApp) com o Whisper rodando localmente, por uma API HTTP simples
+description: "Transcreve áudios (ex.: do WhatsApp) com o Whisper rodando localmente, por uma API HTTP simples"
 url: https://github.com/tompsonpecini/ha-addons/tree/main/transcricao_whisper
 arch:
   - amd64
