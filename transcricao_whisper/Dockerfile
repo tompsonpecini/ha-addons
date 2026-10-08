@@ -1,5 +1,5 @@
-ARG BUILD_FROM
-FROM $BUILD_FROM
+# Imagem base declarada aqui (o build.yaml está obsoleto e não aceita o nome curto python:...)
+FROM docker.io/library/python:3.12-slim-bookworm
 
 # libgomp1: paralelismo do CTranslate2. O PyAV (dependência do faster-whisper) já traz o FFmpeg
 # e decodifica OGG/Opus do WhatsApp sem conversão prévia.
