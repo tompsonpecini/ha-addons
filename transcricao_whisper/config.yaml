@@ -1,7 +1,7 @@
 name: Transcrição (Whisper)
-version: "1.0.1"
+version: "1.1.0"
 slug: transcricao_whisper
-description: "Transcreve áudios (ex.: do WhatsApp) com o Whisper rodando localmente, por uma API HTTP simples"
+description: "Transcreve áudios (Whisper) e gera fala (Piper) localmente, por uma API HTTP simples"
 url: https://github.com/tompsonpecini/ha-addons/tree/main/transcricao_whisper
 arch:
   - amd64
@@ -12,14 +12,16 @@ boot: auto
 ports:
   8000/tcp: 8087
 ports_description:
-  8000/tcp: API de transcrição (POST /transcrever)
+  8000/tcp: API de transcrição (POST /transcrever) e fala (POST /falar)
 options:
   chave: ""
   modelo: small
   idioma: pt
   threads: 4
+  voz: pt_BR-jeff-medium
 schema:
   chave: password
   modelo: list(tiny|base|small|medium)
   idioma: str
   threads: int(1,16)
+  voz: str
